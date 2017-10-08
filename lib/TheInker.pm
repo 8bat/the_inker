@@ -1359,7 +1359,13 @@ sub svg_add_area {
                 }
             }
 
-            push( @d, 'M ' . join( ' L ', map( { "$_->[0],$_->[1]" } @segment_lines ) ), 'Z' );
+            # convert points to relative:
+            foreach my $n ( reverse(1..$#segment_lines) ) {
+                $segment_lines[$n][0] -= $segment_lines[$n-1][0];
+                $segment_lines[$n][1] -= $segment_lines[$n-1][1];
+            }
+
+            push( @d, 'M ' . join( ' l ', map( { "$_->[0],$_->[1]" } @segment_lines ) ), 'Z' );
         }
 
     }
@@ -2169,12 +2175,16 @@ sub pixels_to_paths {
             while ( @$lines ) {
                 my ( $line ) = grep( { $lines->[$_]->{from}->[0] == $pos_x && $lines->[$_]->{from}->[1] == $pos_y } 0..$#$lines );
                 if ( defined($line) ) {
+                    # continue a previous connected path
                     $line = splice( @$lines, $line, 1 );
                 } else {
+                    # start a new connected path
                     $line = shift @$lines;
                     $paths[-1]{text} .= " M " . ($line->{from}->[0]*$multiplier) . ',' . ($screen_height-($line->{from}->[1]*$multiplier));
+                    ( $pos_x, $pos_y ) = @{$line->{from}};
                 }
-                $paths[-1]{text} .= " L " . ($line->{to}->[0]*$multiplier) . ',' . ($screen_height-($line->{to}->[1]*$multiplier));
+                my ( $new_x, $new_y ) = @{$line->{to}};
+                $paths[-1]{text} .= " l " . (($new_x-$pos_x)*$multiplier) . ',' . (($pos_y-$new_y)*$multiplier);
                 ( $pos_x, $pos_y ) = @{$line->{to}};
             }
             $paths[-1]{text} .= "\" />\n";
