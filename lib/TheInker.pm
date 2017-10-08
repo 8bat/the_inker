@@ -770,7 +770,7 @@ sub svg_area_to_debugging_svg {
     foreach my $n ( 0..$#line_segments ) {
         my $segment = $line_segments[$n];
         $ret .=
-            " <path id=\"path-$n\" fill=\"none\" stroke=\"black\" stroke-width=\"1\" " . "d=\"M";
+            " <path id=\"path-$n\" class=\"path\" fill=\"none\" stroke=\"black\" stroke-width=\"1\" " . "d=\"M";
         for ( my $s=$segment; $s; $s=$s->{next} ) {
             $ret .= ' ' . join(',',@{$s->{from}}) . ' ' . join(',',@{$s->{to}});
         }
@@ -2135,7 +2135,7 @@ sub pixels_to_paths {
             foreach my $x ( 0..3 ) {
                 foreach my $y ( 0..1 ) {
                     $dots .=
-                        "      <rect x=\"$x\" y=\"$y\" width=\"1\" height=\"1\" fill=\"$css_colours[$colour]\" />\n"
+                        "      <rect fill=\"$css_colours[$colour]\" x=\"$x\" y=\"$y\" width=\"1\" height=\"1\" />\n"
                         if shade_pixel_at($fill, $x, 1-$y);
                 }
             }
@@ -2161,16 +2161,16 @@ sub pixels_to_paths {
             }
             push( @paths, {
                 id => $id,
-                text => "  <rect " .
+                text => "  <rect id=\"$class-$room-$path_id\" class=\"$class\" fill=\"$colour\" " .
                     "x=\"" . ($min_x*$multiplier) . "\" y=\"" . ($screen_height-$max_y*$multiplier) .
                     "\" width=\"" . (($max_x-$min_x)*$multiplier) . "\" height=\"" . (($max_y-$min_y)*$multiplier) .
-                    "\" class=\"$class\" id=\"$class-$room-$path_id\" fill=\"$colour\" />\n"
+                    "\" />\n"
             });
         } else {
             # complex path
             push( @paths, {
                 id => $id,
-                text => "  <path class=\"$class\" id=\"$class-$room-$path_id\" fill=\"$colour\" d=\""
+                text => "  <path id=\"$class-$room-$path_id\" class=\"$class\" fill=\"$colour\" d=\""
             });
             while ( @$lines ) {
                 my ( $line ) = grep( { $lines->[$_]->{from}->[0] == $pos_x && $lines->[$_]->{from}->[1] == $pos_y } 0..$#$lines );
@@ -2307,7 +2307,7 @@ sub render_svg {
                 $defs .= "    <pattern id=\"fill-$path->{class}-$room-$line_id\" x=\"0\" y=\"0\" width=\"4\" height=\"2\" patternUnits=\"userSpaceOnUse\">\n";
                 foreach my $x ( 0..3 ) {
                     foreach my $y ( 0..1 ) {
-                        $defs .= "      <rect x=\"$x\" y=\"$y\" width=\"1\" height=\"1\" fill=\"$colour\"/>\n" if shade_pixel_at($path->{fill}, $x, 1-$y);
+                        $defs .= "      <rect fill=\"$colour\" x=\"$x\" y=\"$y\" width=\"1\" height=\"1\" />\n" if shade_pixel_at($path->{fill}, $x, 1-$y);
                     }
                 }
                 $defs .= "    </pattern>\n";
@@ -2318,7 +2318,7 @@ sub render_svg {
 
         my $class = $path->{class};
         $class .= ' closed' if $path->{closed};
-        $paths .= "  <path class=\"$class\" id=\"$path->{class}-$room-$line_id\" style=\"stroke:$stroke;fill:$fill\" d=\"$path->{d}\" />\n";
+        $paths .= "  <path id=\"$path->{class}-$room-$line_id\" class=\"$class\" fill=\"$fill\" stroke=\"$stroke\" d=\"$path->{d}\" />\n";
         ++$line_id;
 
     }
