@@ -1993,7 +1993,7 @@ sub pixels_to_paths {
             my $colour2 = $row->[$x]->{$colour_name2} + ($row->[$x]->{bright}?8:0);
             my $colour = $row->[$x]->{flash} ? "$colour1 $colour2" : $colour1;
             $colours{$colour}++;
-            my ( $polygon ) = grep(
+            my ( $polygon, @merge ) = grep(
                 {
                   (($_->{colour}//-1) eq $colour ) && # colour matches
                   (
@@ -2001,10 +2001,20 @@ sub pixels_to_paths {
                    $_->{screen}[$y][$x-1]    # existing element to the left
                   )
                 } @polygons
-                );
+            );
             push( @polygons, $polygon = { colour => $colour, screen => [] } )
                 unless $polygon;
             $polygon->{screen}[$y][$x] = 1;
+            foreach my $merge ( @merge ) {
+                @polygons = grep( { $_ != $merge } @polygons );
+                my $screen = $merge->{screen};
+                foreach my $y ( 0..$#$screen ) {
+                    my $row = $screen->[$y];
+                    foreach my $x ( 0..$#$row ) {
+                        $polygon->{screen}[$y][$x] = 1 if $row->[$x];
+                    }
+                }
+            }
         }
     }
 
