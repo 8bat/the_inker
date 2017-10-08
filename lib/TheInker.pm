@@ -2144,22 +2144,41 @@ sub pixels_to_paths {
         }
 
         $id = "$class-$room-$path_id";
-        push( @paths, {
-            id => $id,
-            text => "  <path class=\"$class\" id=\"$class-$room-$path_id\" fill=\"$colour\" d=\""
-        });
-        while ( @$lines ) {
-            my ( $line ) = grep( { $lines->[$_]->{from}->[0] == $pos_x && $lines->[$_]->{from}->[1] == $pos_y } 0..$#$lines );
-            if ( defined($line) ) {
-                $line = splice( @$lines, $line, 1 );
-            } else {
-                $line = shift @$lines;
-                $paths[-1]{text} .= " M " . ($line->{from}->[0]*$multiplier) . ',' . ($screen_height-($line->{from}->[1]*$multiplier));
+        if ( @$lines == 4 ) {
+            # rectangle
+            my ( $min_x, $min_y, $max_x, $max_y ) = ( 'Inf', 'Inf', 0, 0 );
+            foreach my $point ( map( { ( $_->{from}, $_->{to} ) } @$lines ) ) {
+                $min_x = $point->[0] if $min_x > $point->[0];
+                $min_y = $point->[1] if $min_y > $point->[1];
+                $max_x = $point->[0] if $max_x < $point->[0];
+                $max_y = $point->[1] if $max_y < $point->[1];
             }
-            $paths[-1]{text} .= " L " . ($line->{to}->[0]*$multiplier) . ',' . ($screen_height-($line->{to}->[1]*$multiplier));
-            ( $pos_x, $pos_y ) = @{$line->{to}};
+            push( @paths, {
+                id => $id,
+                text => "  <rect " .
+                    "x=\"" . ($min_x*$multiplier) . "\" y=\"" . ($screen_height-$max_y*$multiplier) .
+                    "\" width=\"" . (($max_x-$min_x)*$multiplier) . "\" height=\"" . (($max_y-$min_y)*$multiplier) .
+                    "\" class=\"$class\" id=\"$class-$room-$path_id\" fill=\"$colour\" />\n"
+            });
+        } else {
+            # complex path
+            push( @paths, {
+                id => $id,
+                text => "  <path class=\"$class\" id=\"$class-$room-$path_id\" fill=\"$colour\" d=\""
+            });
+            while ( @$lines ) {
+                my ( $line ) = grep( { $lines->[$_]->{from}->[0] == $pos_x && $lines->[$_]->{from}->[1] == $pos_y } 0..$#$lines );
+                if ( defined($line) ) {
+                    $line = splice( @$lines, $line, 1 );
+                } else {
+                    $line = shift @$lines;
+                    $paths[-1]{text} .= " M " . ($line->{from}->[0]*$multiplier) . ',' . ($screen_height-($line->{from}->[1]*$multiplier));
+                }
+                $paths[-1]{text} .= " L " . ($line->{to}->[0]*$multiplier) . ',' . ($screen_height-($line->{to}->[1]*$multiplier));
+                ( $pos_x, $pos_y ) = @{$line->{to}};
+            }
+            $paths[-1]{text} .= "\" />\n";
         }
-        $paths[-1]{text} .= "\" />\n";
         ++$path_id;
     }
 
