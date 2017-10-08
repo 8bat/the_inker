@@ -2014,7 +2014,7 @@ sub pixels_to_paths {
 
     # Step two: if the image is mainly one colour, use it as a default:
     my ( $default_colour, $next_colour ) = sort( { $colours{$b} <=> $colours{$a} } keys %colours );
-    if ( (!$next_colour) || ( $colours{$default_colour} > $colours{$next_colour} * 3 ) ) {
+    if ( (!$next_colour) || ( $colours{$default_colour} > $colours{$next_colour} * 5 ) ) {
         my ( $top, $bottom, $left, $right ) = ( ($screen_height-$viewbox_height)/$multiplier, $screen_height/$multiplier, 0, $screen_width/$multiplier );
         push(
             @path_data,
