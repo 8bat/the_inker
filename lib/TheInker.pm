@@ -2033,7 +2033,7 @@ sub pixels_to_paths {
     }
 
     # Step three: calculate lines:
-    foreach my $polygon ( @polygons ) {
+    foreach my $polygon ( reverse @polygons ) {
         my ( @top_lines, @bottom_lines, @left_lines, @right_lines );
         my ( $colour, $screen ) = @{$polygon}{qw/ colour screen /};
         next if $colour eq $default_colour;
