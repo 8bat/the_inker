@@ -2111,7 +2111,7 @@ sub pixels_to_paths {
         my ( $colour, $lines ) = @{$path}{qw/ colour lines /};
         my ( $pos_x, $pos_y ) = ( 'Inf', 'Inf' );
 
-        my $id = "pattern-$class-$room-$path_id";
+        my $id = "pattern-$class-$path_id";
         if ( $colour =~ /^(\d+) (\d+)$/ ) {
             # flashing
             my ( $colour1, $colour2 ) = ( $css_colours[$1], $css_colours[$2] );
@@ -2166,7 +2166,7 @@ sub pixels_to_paths {
             $colour = "url(#$id)"
         }
 
-        $id = "$class-$room-$path_id";
+        $id = "$class-$path_id";
         if ( @$lines == 4 ) {
             # rectangle
             my ( $min_x, $min_y, $max_x, $max_y ) = ( 'Inf', 'Inf', 0, 0 );
@@ -2178,7 +2178,7 @@ sub pixels_to_paths {
             }
             push( @paths, {
                 id => $id,
-                text => "  <rect id=\"$class-$room-$path_id\" class=\"$class\" fill=\"$colour\" " .
+                text => "  <rect id=\"$class-$path_id\" class=\"$class\" fill=\"$colour\" " .
                     "x=\"" . svg_scale($min_x*$multiplier) . "\" y=\"" . svg_scale($screen_height-$max_y*$multiplier) .
                     "\" width=\"" . svg_scale(($max_x-$min_x)*$multiplier) . "\" height=\"" . svg_scale(($max_y-$min_y)*$multiplier) .
                     "\" />\n"
@@ -2187,7 +2187,7 @@ sub pixels_to_paths {
             # complex path
             push( @paths, {
                 id => $id,
-                text => "  <path id=\"$class-$room-$path_id\" class=\"$class\" fill=\"$colour\" d=\""
+                text => "  <path id=\"$class-$path_id\" class=\"$class\" fill=\"$colour\" d=\""
             });
             while ( @$lines ) {
                 my ( $line ) = grep( { $lines->[$_]->{from}->[0] == $pos_x && $lines->[$_]->{from}->[1] == $pos_y } 0..$#$lines );
@@ -2321,21 +2321,21 @@ sub render_svg {
             } elsif ( $multicoloured ) {
                 $fill = $colour;
             } else {
-                $defs .= '    <pattern id="' . "fill-$path->{class}-$room-$line_id" . '" x="0" y="0" width="' . svg_scale(4) . '" height="' . svg_scale(2) . '" patternUnits="userSpaceOnUse">' . "\n";
+                $defs .= '    <pattern id="' . "fill-$path->{class}-$line_id" . '" x="0" y="0" width="' . svg_scale(4) . '" height="' . svg_scale(2) . '" patternUnits="userSpaceOnUse">' . "\n";
                 foreach my $x ( 0..3 ) {
                     foreach my $y ( 0..1 ) {
                         $defs .= '      <rect fill="' . $colour . '" x="' . svg_scale($x) . '" y="' . svg_scale($y) . '" width="' . svg_scale(1) . '" height="' . svg_scale(1) . '" />' . "\n" if shade_pixel_at($path->{fill}, $x, 1-$y);
                     }
                 }
                 $defs .= "    </pattern>\n";
-                $fill = "url(#fill-$path->{class}-$room-$line_id)";
+                $fill = "url(#fill-$path->{class}-$line_id)";
             }
 
         }
 
         my $class = $path->{class};
         $class .= ' closed' if $path->{closed};
-        $paths .= "  <path id=\"$path->{class}-$room-$line_id\" class=\"$class\" fill=\"$fill\" stroke=\"$stroke\" d=\"$path->{d}\" />\n";
+        $paths .= "  <path id=\"$path->{class}-$line_id\" class=\"$class\" fill=\"$fill\" stroke=\"$stroke\" d=\"$path->{d}\" />\n";
         ++$line_id;
 
     }
