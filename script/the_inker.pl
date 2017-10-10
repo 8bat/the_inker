@@ -34,6 +34,7 @@ my $out = "images";
 my $debug = 0;
 my $pattern_template = 'vbca';
 my $height = 96;
+my $svg_scale = 10;
 my $help = 0;
 
 GetOptions(
@@ -41,6 +42,7 @@ GetOptions(
     "out=s" => \$out,
     "pattern-template=s" => \$pattern_template,
     "height=i" => \$height,
+    "svg-scale=i" => \$svg_scale,
     "help"     => \$help,
 ) or exit 1;
 
@@ -93,6 +95,7 @@ END
             data             => $data,
             pattern_template => $pattern_template,
             height           => $height,
+            svg_scale        => $svg_scale,
             all_images       => $debug,
         );
         my $n = -1;
@@ -135,12 +138,22 @@ END
     print <<END
 Usage: $0 [ options ] <unquill-filename>
 
-Convert a set of outputs from Unquill to images.
-options:
+Convert a set of outputs from Unquill to images
+
+Options:
   --debug                    Save debugging images (colour,ink images)
   --out=<directory>          Output directory (default: "$out")
   --height=<0-255>           Height of the output image in pixels (default: $height)
+  --svg-scale=<0-255>        Size multiplier for SVG images (default: $svg_scale)
   --pattern-template=<0-255> Template for generating shade patterns (default: $pattern_template)
+
+SVG SCALING
+
+Making all the numbers bigger in an SVG will have no effect in most cases,
+but some SVG elements produce unattractive results for very small images.
+For example, if you edit an SVG image to include an \<feDisplacementMap\>,
+(which can only displace by whole pixels), \`--svg-scale=1\` would produce
+an obviously-pixelated result.
 
 DEBUGGING IMAGES
 
@@ -157,6 +170,7 @@ PATTERN TEMPLATES
 The Quill describes patterns using numbers from 0 to 255,
 However, these numbers have different meanings in different games.
 The following pattern templates are supported by The Inker:
+
 END
 ;
     foreach my $pattern ( @TheInker::pattern_templates ) {

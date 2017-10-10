@@ -167,6 +167,8 @@ my @attribute_blocks;
 my @screen;
 my @screen_commands;
 my $command_id; # unique ID for each command on the screen
+my $svg_scale_amount;
+my ( $svg_width, $svg_height ); # = ( svg_scale($viewbox_width), svg_scale($viewbox_height) );
 
 
 #
@@ -248,6 +250,8 @@ my @css_colours = map( { sprintf( "#%02x%02x%02x", @$_ ) } @byte_colours );
 sub round { return int($_[0]) };
 
 sub scale { return round( $_[0] * $scale / 8 ); }
+
+sub svg_scale { return $_[0] * $svg_scale_amount; }
 
 sub current_colour {
     my ( $inverse, $overwrite ) = @_;
@@ -404,8 +408,11 @@ sub svg_finalise_path {
         $y = $screen_height-$y-0.5;
         $svg_current_path->{d} = join(
             ' ',
-            "M $x,$y",
-            map( { "l $_->{length}->[0],$_->{length}->[1]" } @{$svg_current_path->{commands}} ),
+            'M ' . svg_scale($x) . ',' . svg_scale($y),
+            map(
+                { 'l ' . svg_scale($_->{length}->[0]) . ',' . svg_scale($_->{length}->[1]) }
+                @{$svg_current_path->{commands}}
+            ),
             $svg_current_path->{closed} ? 'Z' : ()
         );
 
@@ -1365,7 +1372,7 @@ sub svg_add_area {
                 $segment_lines[$n][1] -= $segment_lines[$n-1][1];
             }
 
-            push( @d, 'M ' . join( ' l ', map( { "$_->[0],$_->[1]" } @segment_lines ) ), 'Z' );
+            push( @d, 'M ' . join( ' l ', map( { svg_scale($_->[0]).','.svg_scale($_->[1]) } @segment_lines ) ), 'Z' );
         }
 
     }
@@ -2112,8 +2119,8 @@ sub pixels_to_paths {
                 push( @defs, {
                     id => $id,
                     text =>
-                        "    <pattern id=\"$id\" width=\"$viewbox_width\" height=\"$viewbox_height\" patternUnits=\"userSpaceOnUse\">\n" .
-                        "      <rect x=\"0\" y=\"0\" width=\"$viewbox_width\" height=\"$viewbox_height\">\n" .
+                        "    <pattern id=\"$id\" width=\"$svg_width\" height=\"$svg_height\" patternUnits=\"userSpaceOnUse\">\n" .
+                        "      <rect x=\"0\" y=\"0\" width=\"$svg_width\" height=\"$svg_height\">\n" .
                         "        <animate attributeType=\"XML\" attributeName=\"fill\" from=\"$colour1\" to=\"$colour2\" calcMode=\"discrete\" dur=\"0.64s\" repeatCount=\"indefinite\"/>\n" .
                         "      </rect>\n" .
                         "    </pattern>\n"
@@ -2123,7 +2130,7 @@ sub pixels_to_paths {
                 foreach my $x ( 0..3 ) {
                     foreach my $y ( 0..1 ) {
                         $dots .=
-                            "      <rect x=\"$x\" y=\"$y\" width=\"1\" height=\"1\">\n" .
+                            "      <rect x=\"" . svg_scale($x) . '" y="' . svg_scale($y) . '" width="' . svg_scale(1) . '" height="' . svg_scale(1) . "\">\n" .
                             "        <animate attributeType=\"XML\" attributeName=\"fill\" from=\"$colour1\" to=\"$colour2\" calcMode=\"discrete\" dur=\"0.64s\" repeatCount=\"indefinite\"/>\n" .
                             "      </rect>\n"
                             if shade_pixel_at($fill, $x, 1-$y);
@@ -2132,7 +2139,7 @@ sub pixels_to_paths {
                 push( @defs, {
                     id => $id,
                     text =>
-                        "    <pattern id=\"$id\" width=\"4\" height=\"2\" patternUnits=\"userSpaceOnUse\">\n" .
+                        '    <pattern id="' . $id . '" width="' . svg_scale(4) . '" height="' . svg_scale(2) . '" patternUnits="userSpaceOnUse">' . "\n" .
                         $dots .
                         "    </pattern>\n"
                 });
@@ -2145,14 +2152,14 @@ sub pixels_to_paths {
             foreach my $x ( 0..3 ) {
                 foreach my $y ( 0..1 ) {
                     $dots .=
-                        "      <rect fill=\"$css_colours[$colour]\" x=\"$x\" y=\"$y\" width=\"1\" height=\"1\" />\n"
+                        "      <rect fill=\"$css_colours[$colour]\" x=\"" . svg_scale($x) . '" y="' . svg_scale($y) . '" width="' . svg_scale(1) . '" height="' . svg_scale(1) . "\" />\n"
                         if shade_pixel_at($fill, $x, 1-$y);
                 }
             }
             push( @defs, {
                 id => $id,
                 text =>
-                    "    <pattern id=\"$id\" width=\"4\" height=\"2\" patternUnits=\"userSpaceOnUse\">\n" .
+                    "    <pattern id=\"$id\" width=\"" . svg_scale(4) . '" height="' . svg_scale(2) . "\" patternUnits=\"userSpaceOnUse\">\n" .
                     $dots .
                     "    </pattern>\n"
             });
@@ -2172,8 +2179,8 @@ sub pixels_to_paths {
             push( @paths, {
                 id => $id,
                 text => "  <rect id=\"$class-$room-$path_id\" class=\"$class\" fill=\"$colour\" " .
-                    "x=\"" . ($min_x*$multiplier) . "\" y=\"" . ($screen_height-$max_y*$multiplier) .
-                    "\" width=\"" . (($max_x-$min_x)*$multiplier) . "\" height=\"" . (($max_y-$min_y)*$multiplier) .
+                    "x=\"" . svg_scale($min_x*$multiplier) . "\" y=\"" . svg_scale($screen_height-$max_y*$multiplier) .
+                    "\" width=\"" . svg_scale(($max_x-$min_x)*$multiplier) . "\" height=\"" . svg_scale(($max_y-$min_y)*$multiplier) .
                     "\" />\n"
             });
         } else {
@@ -2190,11 +2197,11 @@ sub pixels_to_paths {
                 } else {
                     # start a new connected path
                     $line = shift @$lines;
-                    $paths[-1]{text} .= " M " . ($line->{from}->[0]*$multiplier) . ',' . ($screen_height-($line->{from}->[1]*$multiplier));
+                    $paths[-1]{text} .= " M " . svg_scale($line->{from}->[0]*$multiplier) . ',' . svg_scale($screen_height-($line->{from}->[1]*$multiplier));
                     ( $pos_x, $pos_y ) = @{$line->{from}};
                 }
                 my ( $new_x, $new_y ) = @{$line->{to}};
-                $paths[-1]{text} .= " l " . (($new_x-$pos_x)*$multiplier) . ',' . (($pos_y-$new_y)*$multiplier);
+                $paths[-1]{text} .= " l " . svg_scale(($new_x-$pos_x)*$multiplier) . ',' . svg_scale(($pos_y-$new_y)*$multiplier);
                 ( $pos_x, $pos_y ) = @{$line->{to}};
             }
             $paths[-1]{text} .= "\" />\n";
@@ -2284,7 +2291,7 @@ sub render_svg {
 
             if ( $multicoloured ) {
                 $defs .= $_->{text} foreach @$line_defs;
-                $defs .= "    <pattern id=\"$id\" width=\"256\" height=\"96\" patternUnits=\"userSpaceOnUse\">\n";
+                $defs .= "    <pattern id=\"$id\" width=\"$svg_width\" height=\"$svg_height\" patternUnits=\"userSpaceOnUse\">\n";
                 foreach my $path ( @$line_paths ) {
                     $path->{text} =~ s/^/    /mg;
                     $defs .= $path->{text};
@@ -2314,10 +2321,10 @@ sub render_svg {
             } elsif ( $multicoloured ) {
                 $fill = $colour;
             } else {
-                $defs .= "    <pattern id=\"fill-$path->{class}-$room-$line_id\" x=\"0\" y=\"0\" width=\"4\" height=\"2\" patternUnits=\"userSpaceOnUse\">\n";
+                $defs .= '    <pattern id="' . "fill-$path->{class}-$room-$line_id" . '" x="0" y="0" width="' . svg_scale(4) . '" height="' . svg_scale(2) . '" patternUnits="userSpaceOnUse">' . "\n";
                 foreach my $x ( 0..3 ) {
                     foreach my $y ( 0..1 ) {
-                        $defs .= "      <rect fill=\"$colour\" x=\"$x\" y=\"$y\" width=\"1\" height=\"1\" />\n" if shade_pixel_at($path->{fill}, $x, 1-$y);
+                        $defs .= '      <rect fill="' . $colour . '" x="' . svg_scale($x) . '" y="' . svg_scale($y) . '" width="' . svg_scale(1) . '" height="' . svg_scale(1) . '" />' . "\n" if shade_pixel_at($path->{fill}, $x, 1-$y);
                     }
                 }
                 $defs .= "    </pattern>\n";
@@ -2335,10 +2342,11 @@ sub render_svg {
 
     $defs = "  <defs>\n$defs  </defs>\n" if $defs;
 
+    my $stroke_width = svg_scale(1);
     return <<END
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.0//EN" "http://www.w3.org/TR/2001/REC-SVG-20010904/DTD/svg10.dtd">
-<svg id="room-$room" viewBox="0 0 $viewbox_width $viewbox_height" style="fill-rule:evenodd;stroke-linecap:square;stroke-linejoin:round" height="100%" width="100%" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<svg id="room-$room" viewBox="0 0 $svg_width $svg_height" style="fill-rule:evenodd;stroke-linecap:square;stroke-linejoin:round;stroke-width:$stroke_width" height="100%" width="100%" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
 $defs$paths</svg>
 END
 ;
@@ -2360,6 +2368,8 @@ sub initialise {
     );
     my $all_images = $args{all_images};
     $location_height = $viewbox_height = $args{height} // 96;
+    $svg_scale_amount = $args{svg_scale} // 10;
+    ( $svg_width, $svg_height ) = ( svg_scale($viewbox_width), svg_scale($viewbox_height) );
 
     return grep( { $all_images || $_->{is_location} } @$subroutines );
 
