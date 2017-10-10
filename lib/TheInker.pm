@@ -1372,7 +1372,7 @@ sub svg_add_area {
                 $segment_lines[$n][1] -= $segment_lines[$n-1][1];
             }
 
-            push( @d, 'M ' . join( ' l ', map( { svg_scale($_->[0]).','.svg_scale($_->[1]) } @segment_lines ) ), 'Z' );
+            push( @d, 'M ' . join( ' l ', map( { svg_scale($_->[0]).','.svg_scale($_->[1]) } @segment_lines ) ) . ' Z' );
         }
 
     }
