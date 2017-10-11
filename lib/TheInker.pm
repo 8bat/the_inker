@@ -310,6 +310,16 @@ sub clear_point {
     return $command;
 }
 
+sub get_colour_id {
+    my ( $colour, $colour_name ) = @_;
+    my $c = $colour->{$colour_name};
+    # transparent ink (i.e. use paper colour):
+    $c = $colour->{paper} if $c == 8;
+    # bright (except bright black, which is the same as normal black):
+    $c += 8 if $c && $colour->{bright};
+    return $c;
+}
+
 
 #
 # SVG COMMANDS
@@ -1947,9 +1957,8 @@ sub render_pnm {
         die $#$row_attribute_blocks if $#$row_attribute_blocks >= $attribute_width;
         foreach my $x ( 0..($attribute_width-1) ) {
             my $colour = $row_attribute_blocks->[$x];
-            $colour->{pnm_paper} = pack( 'C*', @{$byte_colours[$colour->{paper} + ($colour->{bright}?8:0)]} );
-            $colour->{ink} = $colour->{paper} if $colour->{ink} == 8; # transparent
-            $colour->{pnm_ink} = pack( 'C*', @{$byte_colours[$colour->{ink  } + ($colour->{bright}?8:0)]} );
+            $colour->{pnm_paper} = pack( 'C*', @{$byte_colours[get_colour_id($colour,'paper')]} );
+            $colour->{pnm_ink} = pack( 'C*', @{$byte_colours[get_colour_id($colour,'ink')]} );
             $pnm_paper .= $colour->{pnm_paper};
             $pnm_ink   .= $colour->{pnm_ink  };
         }
@@ -1996,8 +2005,8 @@ sub pixels_to_paths {
     foreach my $y ( ($bottom_row/$multiplier)..$#$area ) {
         my $row = $area->[$y];
         foreach my $x ( 0..$#$row ) {
-            my $colour1 = $row->[$x]->{$colour_name1} + ($row->[$x]->{bright}?8:0);
-            my $colour2 = $row->[$x]->{$colour_name2} + ($row->[$x]->{bright}?8:0);
+            my $colour1 = get_colour_id($row->[$x],$colour_name1);
+            my $colour2 = get_colour_id($row->[$x],$colour_name2);
             my $colour = $row->[$x]->{flash} ? "$colour1 $colour2" : $colour1;
             $colours{$colour}++;
             my ( $polygon, @merge ) = grep(
@@ -2248,10 +2257,9 @@ sub render_svg {
             $has_animation |= $colour->{flash};
             if ( defined($first_colour) ) {
                 $multicoloured |=
-                    $colour->{ink   } != $first_colour->{ink   } ||
-                    $colour->{bright} != $first_colour->{bright} ||
-                    $colour->{flash } != $first_colour->{flash } ||
-                    ( $colour->{flash} && $colour->{paper} != $first_colour->{paper} )
+                    get_colour_id($colour,'ink') != get_colour_id($first_colour,'ink') ||
+                    $colour->{flash} != $first_colour->{flash} ||
+                    ( $colour->{flash} && get_colour_id($colour,'paper') != get_colour_id($first_colour,'paper') )
                     ;
             } else {
                 $first_colour = $colour;
@@ -2306,9 +2314,9 @@ sub render_svg {
             }
 
         } elsif ( $path->{stroke} eq 'none' ) {
-            $colour = $css_colours[($first_colour->{bright}?8:0) + $first_colour->{ink}];
+            $colour = $css_colours[get_colour_id($first_colour,'ink')];
         } else {
-            $colour = $css_colours[($first_colour->{bright}?8:0) + $first_colour->{$path->{stroke}}];
+            $colour = $css_colours[get_colour_id($first_colour,$path->{stroke})];
         }
 
         my $stroke = ( $path->{stroke} eq 'none' ) ? 'none': $colour;
