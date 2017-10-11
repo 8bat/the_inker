@@ -351,6 +351,24 @@ sub adjacent {
         ;
 }
 
+sub svg_path_line {
+    my ( $length ) = @_;
+    my ( $x, $y ) = ( svg_scale($length->[0]), svg_scale($length->[1]) );
+    if ( $x == 0 ) {
+        if ( $y == 0 ) {
+            return "l 0,0"; # otherwise, SVG won't render single-pixel paths
+        } else {
+            return "v $y";
+        }
+    } else {
+        if ( $y == 0 ) {
+            return "h $x";
+        } else {
+            return "l $x,$y";
+        }
+    }
+}
+
 #
 # SVG line commands
 # Create a path from plot and line intermediate commands
@@ -420,7 +438,7 @@ sub svg_finalise_path {
             ' ',
             'M ' . svg_scale($x) . ',' . svg_scale($y),
             map(
-                { 'l ' . svg_scale($_->{length}->[0]) . ',' . svg_scale($_->{length}->[1]) }
+                { svg_path_line($_->{length}) }
                 @{$svg_current_path->{commands}}
             ),
             $svg_current_path->{closed} ? 'Z' : ()
@@ -1382,7 +1400,15 @@ sub svg_add_area {
                 $segment_lines[$n][1] -= $segment_lines[$n-1][1];
             }
 
-            push( @d, 'M ' . join( ' l ', map( { svg_scale($_->[0]).','.svg_scale($_->[1]) } @segment_lines ) ) . ' Z' );
+            my $start = shift @segment_lines;
+
+            push( @d,
+                  join( ' ',
+                        'M ' . svg_scale($start->[0]).','.svg_scale($start->[1]),
+                        map( { svg_path_line($_) } @segment_lines ),
+                        'Z'
+                  )
+            );
         }
 
     }
@@ -2194,10 +2220,7 @@ sub pixels_to_paths {
             });
         } else {
             # complex path
-            push( @paths, {
-                id => $id,
-                text => "  <path id=\"$class-$path_id\" class=\"$class\" fill=\"$colour\" d=\""
-            });
+            my @d;
             while ( @$lines ) {
                 my ( $line ) = grep( { $lines->[$_]->{from}->[0] == $pos_x && $lines->[$_]->{from}->[1] == $pos_y } 0..$#$lines );
                 if ( defined($line) ) {
@@ -2206,14 +2229,20 @@ sub pixels_to_paths {
                 } else {
                     # start a new connected path
                     $line = shift @$lines;
-                    $paths[-1]{text} .= " M " . svg_scale($line->{from}->[0]*$multiplier) . ',' . svg_scale($screen_height-($line->{from}->[1]*$multiplier));
+                    push( @d, ( @d ? "\n" : '' ) . "M " . svg_scale($line->{from}->[0]*$multiplier) . ',' . svg_scale($screen_height-($line->{from}->[1]*$multiplier)) );
                     ( $pos_x, $pos_y ) = @{$line->{from}};
                 }
                 my ( $new_x, $new_y ) = @{$line->{to}};
-                $paths[-1]{text} .= " l " . svg_scale(($new_x-$pos_x)*$multiplier) . ',' . svg_scale(($pos_y-$new_y)*$multiplier);
+                push( @d, ' ' . svg_path_line([ ($new_x-$pos_x)*$multiplier, ($pos_y-$new_y)*$multiplier ]) );
                 ( $pos_x, $pos_y ) = @{$line->{to}};
             }
-            $paths[-1]{text} .= "\" />\n";
+            push( @paths, {
+                id => $id,
+                text =>
+                    "  <path id=\"$class-$path_id\" class=\"$class\" fill=\"$colour\" d=\"" .
+                    join( '', @d ) .
+                    "\" />\n"
+            });
         }
         ++$path_id;
     }
