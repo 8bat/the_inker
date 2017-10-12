@@ -2154,8 +2154,8 @@ sub pixels_to_paths {
                 push( @defs, {
                     id => $id,
                     text =>
-                        "    <pattern id=\"$id\" width=\"$svg_width\" height=\"$svg_height\" patternUnits=\"userSpaceOnUse\">\n" .
-                        "      <rect x=\"0\" y=\"0\" width=\"$svg_width\" height=\"$svg_height\">\n" .
+                        "    <pattern id=\"$id\" width=\"100%\" height=\"100%\">\n" .
+                        "      <rect x=\"0\" y=\"0\" width=\"100%\" height=\"100%\">\n" .
                         "        <animate attributeType=\"XML\" attributeName=\"fill\" from=\"$colour1\" to=\"$colour2\" calcMode=\"discrete\" dur=\"0.64s\" repeatCount=\"indefinite\"/>\n" .
                         "      </rect>\n" .
                         "    </pattern>\n"
