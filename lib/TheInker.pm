@@ -2020,6 +2020,35 @@ sub render_pnm {
 
 }
 
+sub find_rectangle {
+    my ( $lines ) = @_;
+    return unless @$lines == 4;
+
+    my ( $min_x, $min_y, $max_x, $max_y ) = ( 'Inf', 'Inf', 0, 0 );
+    foreach my $point ( map( { ( $_->{from}, $_->{to} ) } @$lines ) ) {
+        $min_x = $point->[0] if $min_x > $point->[0];
+        $min_y = $point->[1] if $min_y > $point->[1];
+        $max_x = $point->[0] if $max_x < $point->[0];
+        $max_y = $point->[1] if $max_y < $point->[1];
+    }
+
+    my @points = (
+        [$min_x,$min_y],
+        [$min_x,$max_y],
+        [$max_x,$min_y],
+        [$max_x,$max_y],
+    );
+
+    foreach my $line ( @$lines ) {
+        foreach my $point ( @{$line}{qw/ from to /} ) {
+            return unless grep( { $_->[0] == $point->[0] && $_->[1] == $point->[1] } @points );
+        }
+    }
+
+    return ( $min_x, $min_y, $max_x, $max_y );
+
+}
+
 sub pixels_to_paths {
     # Combine a matrix of pixels into a list of identically-coloured polygons
     my ( $area, $multiplier, $class, $colour_name1, $colour_name2, $fill ) = @_;
@@ -2202,15 +2231,7 @@ sub pixels_to_paths {
         }
 
         $id = "$class-$path_id";
-        if ( @$lines == 4 ) {
-            # rectangle
-            my ( $min_x, $min_y, $max_x, $max_y ) = ( 'Inf', 'Inf', 0, 0 );
-            foreach my $point ( map( { ( $_->{from}, $_->{to} ) } @$lines ) ) {
-                $min_x = $point->[0] if $min_x > $point->[0];
-                $min_y = $point->[1] if $min_y > $point->[1];
-                $max_x = $point->[0] if $max_x < $point->[0];
-                $max_y = $point->[1] if $max_y < $point->[1];
-            }
+        if ( my ( $left, $top, $right, $bottom ) = find_rectangle($lines) ) {
             push( @paths, {
                 id => $id,
                 text => "  <rect id=\"$class-$path_id\" class=\"$class\" fill=\"$colour\" " .
