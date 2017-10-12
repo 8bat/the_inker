@@ -2049,6 +2049,38 @@ sub find_rectangle {
 
 }
 
+sub fill_to_rectangles {
+    # calculate rectangles associated with a fill.
+    # Whereas the pixels_to_paths() algorithm is complex and biased towards making squares,
+    # this is biased towards making oblongs (which are likely to look better in a repeating pattern)
+    my ( $fill ) = @_;
+    my @ret = [ -10, -10, -10, -10 ];
+    foreach my $x ( 0..3 ) {
+        my ( $y, $h );
+        if ( shade_pixel_at($fill, $x, 1) ) {
+            $y = 0;
+            $h = shade_pixel_at($fill, $x, 0) ? 2 : 1;
+        } elsif ( shade_pixel_at($fill, $x, 0) ) {
+            $y = 1;
+            $h = 1;
+        } else {
+            next;
+        }
+        if (
+            $x == $ret[-1][0]+$ret[-1][2] &&
+            $y == $ret[-1][1] &&
+            $h == $ret[-1][3]
+            ) {
+            ++$ret[-1][2]
+        } else {
+            push( @ret, [ $x, $y, 1, $h ] );
+        }
+    }
+    shift @ret;
+    return @ret;
+}
+
+
 sub pixels_to_paths {
     # Combine a matrix of pixels into a list of identically-coloured polygons
     my ( $area, $multiplier, $class, $colour_name1, $colour_name2, $fill ) = @_;
@@ -2190,44 +2222,43 @@ sub pixels_to_paths {
                         "    </pattern>\n"
                 });
             } else {
-                my $dots = '';
-                foreach my $x ( 0..3 ) {
-                    foreach my $y ( 0..1 ) {
-                        $dots .=
-                            "      <rect x=\"" . svg_scale($x) . '" y="' . svg_scale($y) . '" width="' . svg_scale(1) . '" height="' . svg_scale(1) . "\">\n" .
-                            "        <animate attributeType=\"XML\" attributeName=\"fill\" from=\"$colour1\" to=\"$colour2\" calcMode=\"discrete\" dur=\"0.64s\" repeatCount=\"indefinite\"/>\n" .
-                            "      </rect>\n"
-                            if shade_pixel_at($fill, $x, 1-$y);
+                my @rectangles = map(
+                    {
+                        my ( $x, $y, $w, $h ) = @$_;
+                        "      <rect x=\"" . svg_scale($x) . '" y="' . svg_scale($y) . '" width="' . svg_scale($w) . '" height="' . svg_scale($h) . "\">\n" .
+                        "        <animate attributeType=\"XML\" attributeName=\"fill\" from=\"$colour1\" to=\"$colour2\" calcMode=\"discrete\" dur=\"0.64s\" repeatCount=\"indefinite\"/>\n" .
+                        "      </rect>\n"
                     }
-                }
+                    fill_to_rectangles($fill)
+                );
                 push( @defs, {
                     id => $id,
                     text =>
                         '    <pattern id="' . $id . '" width="' . svg_scale(4) . '" height="' . svg_scale(2) . '" patternUnits="userSpaceOnUse">' . "\n" .
-                        $dots .
+                        join( '', @rectangles ) .
                         "    </pattern>\n"
                 });
             }
             $colour = "url(#$id)"
-        } elsif ( $fill == 255 ) {
-            $colour = $css_colours[$colour];
         } else {
-            my $dots = '';
-            foreach my $x ( 0..3 ) {
-                foreach my $y ( 0..1 ) {
-                    $dots .=
-                        "      <rect fill=\"$css_colours[$colour]\" x=\"" . svg_scale($x) . '" y="' . svg_scale($y) . '" width="' . svg_scale(1) . '" height="' . svg_scale(1) . "\" />\n"
-                        if shade_pixel_at($fill, $x, 1-$y);
-                }
+            $colour = $css_colours[$colour];
+            if ( $fill != 255 ) {
+                my @rectangles = map(
+                    {
+                        my ( $x, $y, $w, $h ) = @$_;
+                        '      <rect fill="'.$colour.'" x="' . svg_scale($x) . '" y="' . svg_scale($y) . '" width="' . svg_scale($w) . '" height="' . svg_scale($h) . "\" />\n"
+                    }
+                    fill_to_rectangles($fill)
+                );
+                push( @defs, {
+                    id => $id,
+                    text =>
+                        "    <pattern id=\"$id\" width=\"" . svg_scale(4) . '" height="' . svg_scale(2) . "\" patternUnits=\"userSpaceOnUse\">\n" .
+                        join( '', @rectangles ) .
+                        "    </pattern>\n"
+                });
+                $colour = "url(#$id)"
             }
-            push( @defs, {
-                id => $id,
-                text =>
-                    "    <pattern id=\"$id\" width=\"" . svg_scale(4) . '" height="' . svg_scale(2) . "\" patternUnits=\"userSpaceOnUse\">\n" .
-                    $dots .
-                    "    </pattern>\n"
-            });
-            $colour = "url(#$id)"
         }
 
         $id = "$class-$path_id";
@@ -2235,8 +2266,8 @@ sub pixels_to_paths {
             push( @paths, {
                 id => $id,
                 text => "  <rect id=\"$class-$path_id\" class=\"$class\" fill=\"$colour\" " .
-                    "x=\"" . svg_scale($min_x*$multiplier) . "\" y=\"" . svg_scale($screen_height-$max_y*$multiplier) .
-                    "\" width=\"" . svg_scale(($max_x-$min_x)*$multiplier) . "\" height=\"" . svg_scale(($max_y-$min_y)*$multiplier) .
+                    "x=\"" . svg_scale($left*$multiplier) . "\" y=\"" . svg_scale($screen_height-$bottom*$multiplier) .
+                    "\" width=\"" . svg_scale(($right-$left)*$multiplier) . "\" height=\"" . svg_scale(($bottom-$top)*$multiplier) .
                     "\" />\n"
             });
         } else {
@@ -2379,13 +2410,18 @@ sub render_svg {
             } elsif ( $multicoloured ) {
                 $fill = $colour;
             } else {
-                $defs .= '    <pattern id="' . "fill-$path->{class}-$line_id" . '" x="0" y="0" width="' . svg_scale(4) . '" height="' . svg_scale(2) . '" patternUnits="userSpaceOnUse">' . "\n";
-                foreach my $x ( 0..3 ) {
-                    foreach my $y ( 0..1 ) {
-                        $defs .= '      <rect fill="' . $colour . '" x="' . svg_scale($x) . '" y="' . svg_scale($y) . '" width="' . svg_scale(1) . '" height="' . svg_scale(1) . '" />' . "\n" if shade_pixel_at($path->{fill}, $x, 1-$y);
+                my @rectangles = map(
+                    {
+                        my ( $x, $y, $w, $h ) = @$_;
+                        '      <rect fill="'.$colour.'" x="' . svg_scale($x) . '" y="' . svg_scale($y) . '" width="' . svg_scale($w) . '" height="' . svg_scale($h) . "\" />\n"
                     }
-                }
-                $defs .= "    </pattern>\n";
+                    fill_to_rectangles($path->{fill})
+                );
+                $defs .=
+                    '    <pattern id="' . "fill-$path->{class}-$line_id" . '" x="0" y="0" width="' . svg_scale(4) . '" height="' . svg_scale(2) . '" patternUnits="userSpaceOnUse">' . "\n"
+                    . join( '', @rectangles )
+                    . "    </pattern>\n"
+                ;
                 $fill = "url(#fill-$path->{class}-$line_id)";
             }
 
