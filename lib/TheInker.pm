@@ -765,11 +765,18 @@ sub svg_segment_reduce {
     return $segment;
 }
 
-sub svg_area_to_pnm {
-    # Debugging use only
-    my ( $command ) = @_;
+sub svg_area_dump {
 
-    my $area = $command->{area};
+    my ( $command, @line_segments ) = @_;
+    mkdir('error');
+
+
+    #
+    # Dump image as PNM
+    #
+
+    open( my $pnm_fh, '>', "error/$room.pnm" );
+    my $area = $svg_current_area_pixels;
 
     my @border;
     foreach my $pixel ( @{$command->{border_pixels}} ) {
@@ -777,52 +784,47 @@ sub svg_area_to_pnm {
             if $pixel->{coords}->[1] >= 0 && $pixel->{coords}->[0] >= 0;
     }
 
-    my $ret = "P6\n$screen_width $screen_height\n255\n";
+    print( $pnm_fh "P6\n$screen_width $screen_height\n255\n" );
 
     foreach my $y ( 0..($screen_height-1) ) {
         foreach my $x ( 0..($screen_width-1) ) {
             if ( $border[$y][$x] ) {
-                $ret .= $area->[$y][$x] ? "\xFF\x00\x00" : "\xFF\xFF\xFF";
+                print( $pnm_fh $area->[$y][$x] ? "\xFF\x00\x00" : "\xFF\xFF\xFF" );
             } else {
-                $ret .= $area->[$y][$x] ? "\x7F\x7F\x7F" : "\x00\x00\x00";
+                print( $pnm_fh $area->[$y][$x] ? "\x7F\x7F\x7F" : "\x00\x00\x00" );
             }
         }
     }
+    open( my $vectors_fh, '>', "error/$room.svg" );
 
-    return $ret;
-}
 
-sub svg_area_to_debugging_svg {
-    # generates an SVG that can be loaded by GIMP.
-    # See the end of svg_add_area() for the real SVG-generating code
-    my ( @line_segments ) = @_;
+    #
+    # Dump lines as SVG that can be loaded by GIMP
+    # See the end of svg_finalise_area() for the real SVG-generating code
+    #
 
-    my $ret =
+    print(
+        $vectors_fh
         q{<?xml version="1.0" encoding="UTF-8" standalone="no"?>} . "\n" .
         q{<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 20010904//EN" "http://www.w3.org/TR/2001/REC-SVG-20010904/DTD/svg10.dtd">} . "\n" .
         q{<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 96">} . "\n"
-    ;
+    );
     foreach my $n ( 0..$#line_segments ) {
         my $segment = $line_segments[$n];
-        $ret .=
-            " <path id=\"path-$n\" class=\"path\" fill=\"none\" stroke=\"black\" stroke-width=\"1\" " . "d=\"M";
+        print(
+            $vectors_fh
+            " <path id=\"path-$n\" class=\"path\" fill=\"none\" stroke=\"black\" stroke-width=\"1\" " . "d=\"M"
+        );
         for ( my $s=$segment; $s; $s=$s->{next} ) {
-            $ret .= ' ' . join(',',@{$s->{from}}) . ' ' . join(',',@{$s->{to}});
+            print( $vectors_fh ' ', join(',',@{$s->{from}}), ' ', join(',',@{$s->{to}}) );
         }
-        $ret .= "\" />\n";
+        print( $vectors_fh "\" />\n" );
     }
-    return $ret . "</svg>\n";
-
-}
-
-sub svg_area_dump {
-    my ( $command, @line_segments ) = @_;
-    mkdir('error');
-    open( my $pnm_fh, '>', "error/$room.pnm" );
-    print( $pnm_fh svg_area_to_pnm( $command ) );
-    open( my $vectors_fh, '>', "error/$room.svg" );
-    print( $vectors_fh svg_area_to_debugging_svg(@line_segments) );
+    print( $vectors_fh "</svg>\n" );
     close($vectors_fh);
+
+    warn "Saved debugging information to error/$room.{svg,pnm}";
+
     return;
 }
 
