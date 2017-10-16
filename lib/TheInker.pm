@@ -714,6 +714,26 @@ sub svg_segment_intersections {
     return @points;
 }
 
+sub svg_area_stringify {
+    # debugging use only
+    my ( $area, $colour ) = @_;
+    my $ret = '';
+    my $row_id = 0;
+    my $non_blank_row_seen = 0;
+    foreach my $row ( @$area ) {
+        if ( $non_blank_row_seen || grep( { $_ } @$row ) ) {
+            $non_blank_row_seen = 1;
+            if ( defined($colour) ) {
+                $ret .= sprintf( "%03d: %s\n", $row_id, join( '', map( { $_ ? $_->{$colour} : ' ' } @$row ) ) );
+            } else {
+                $ret .= sprintf( "%03d: %s\n", $row_id, join( '', map( { $_ ? '#'           : ' ' } @$row ) ) );
+            }
+        }
+        ++$row_id
+    }
+    return $ret;
+}
+
 sub svg_segments_stringify {
     # debugging use only
     my ( @segments ) = @_;
@@ -1481,6 +1501,8 @@ sub svg_finalise_area {
     if ( grep( { !$_->{closed} } @line_segments ) ) {
 
         # Error: we only handle areas that can be described with closed paths
+
+        warn svg_segments_stringify(@line_segments) if $local_debug;
 
         svg_area_dump($command,@line_segments);
 
