@@ -49,7 +49,7 @@ Here is a rough overview of the way Illustrator images are parsed:
 2. Intermediate commands (fill(), line() etc.) are converted to bitmap and SVG commands
    * this layer contains most of the drawing logic
 3. Bitmap commands (draw_point(), set_colour() etc.) modify the image in memory
-4. SVG commands (svg_add_line(), svg_add_area() etc.) build a set of SVG elements
+4. SVG commands (svg_add_line(), svg_finalise_areas() etc.) build a set of SVG elements
 5. Renderers (render_pnm() and render_svg()) convert data to output formats
 
 =cut
@@ -187,6 +187,7 @@ my ( $svg_width, $svg_height ); # = ( svg_scale($viewbox_width), svg_scale($view
 my @svg_paths;
 my @svg_areas;
 my $svg_current_path;
+my @svg_current_areas;
 
 # Shade patterns (0-255) describe the pixels in a 4x2 grid that should be filled in.
 # Unfortunately, the pattern differs between versions of The Illustrator.
@@ -351,6 +352,11 @@ sub adjacent {
         ;
 }
 
+sub equal_horizontal {
+    my ( $p1, $p2 ) = @_;
+    return $p1->[0] == $p2->[0];
+}
+
 sub svg_path_line {
     my ( $length ) = @_;
     my ( $x, $y ) = ( svg_scale($length->[0]), svg_scale($length->[1]) );
@@ -455,7 +461,7 @@ sub svg_finalise_path {
 # SVG area commands
 # Create a path from fill and shade intermediate commands
 #
-# Note: only svg_add_area() is called directly.
+# Note: only svg_finalise_area() is called directly.
 #       Everything else is used by it to calculate paths
 #
 
@@ -765,6 +771,86 @@ sub svg_segment_reduce {
     return $segment;
 }
 
+sub svg_segment_attach_middle {
+    # occasionally, the end of one path will match a point in the middle of another path
+    my ( $line_segments, $n, $matches ) = @_;
+
+    my $segment = $line_segments->[$n];
+    return unless $segment->{root};
+    return if $segment->{closed};
+    my ( $from, $to ) = @{svg_segment_endpoints($segment)};
+    foreach my $other ( @$line_segments ) {
+        next if $other == $segment;
+        next if $other->{closed};
+        my $count = -1;
+        for ( my $s=$other; $s; $s=$s->{next} ) { ++$count; }
+
+        my ( $match_type, $match_distance, $match_pos, $match_other, $match_middle ) = ( 0, 'Inf' );
+        my $pos = 0;
+        for ( my $s=$other; $s->{next}; $s=$s->{next} ) {
+            if      ( $matches->(   $to, $s->{  to} ) ) {
+                # $other is [ $a .. $match .. $z ]
+                if ( $match_distance > point_point_distance(@{$to},@{$s->{to}}) ) {
+                    $match_distance = point_point_distance(@{$to},@{$s->{to}});
+                    $match_pos = $pos;
+                    $match_other = $other;
+                    if ( $pos < $count/2 ) {
+                        # create [ $segment .. $match..$a .. $a..$z ]:
+                        $match_type = 1;
+                    } else {
+                        # create [ $segment .. $match..$z .. $z..$a ]:
+                        ( $match_type, $match_middle ) = ( 2, $s->{next} );
+                    }
+                }
+            } elsif ( $matches->( $from, $s->{  to} ) ) {
+                # other is [ $a .. $match .. $z ]
+                if ( $match_distance > point_point_distance(@{$from},@{$s->{to}}) ) {
+                    $match_distance = point_point_distance(@{$to},@{$s->{to}});
+                    $match_pos = $pos;
+                    $match_other = $other;
+                    if ( $pos < $count / 2 ) {
+                        # create [ $z..$a .. $a..$match .. $segment ]:
+                        $match_type = 3;
+                    } else {
+                        # create [ $a..$z .. $z..$match .. $segment ]
+                        ( $match_type, $match_middle ) = ( 4, $s->{next} );
+                    }
+                }
+            }
+            ++$pos;
+        }
+
+        if ( $match_type == 1 ) {
+            svg_segment_attach( $segment, svg_segment_reverse( [], svg_segment_clone( $match_other    , $match_pos ) ), $match_other );
+        } elsif ( $match_type == 2 ) {
+            svg_segment_attach( $segment,                          svg_segment_clone( $match_middle, 'Inf'  )  , svg_segment_reverse( $line_segments, $match_other ) );
+        } elsif ( $match_type == 3 ) {
+            svg_segment_attach( svg_segment_reverse( $line_segments, $match_other ), svg_segment_clone( $match_other, $match_pos ), $segment );
+        } elsif ( $match_type == 4 ) {
+            svg_segment_attach( $match_other, svg_segment_reverse( [], svg_segment_clone( $match_middle, 'Inf' ) ), $segment );
+        }
+
+    }
+
+}
+
+sub vertical_matches {
+    my ( $segment_endpoints, $point, $endpoint, @others ) = @_;
+    my @ret = (
+        sort(
+            {
+                point_point_distance($segment_endpoints->[$a][$endpoint], $point)
+                <=>
+                point_point_distance($segment_endpoints->[$b][$endpoint], $point)
+            }
+            grep(
+                { equal_horizontal( $segment_endpoints->[$_][$endpoint], $point ) }
+                @others
+            )
+        )
+    );
+}
+
 sub svg_area_dump {
 
     my ( $command, @line_segments ) = @_;
@@ -776,7 +862,7 @@ sub svg_area_dump {
     #
 
     open( my $pnm_fh, '>', "error/$room.pnm" );
-    my $area = $svg_current_area_pixels;
+    my $area = $command->{area};
 
     my @border;
     foreach my $pixel ( @{$command->{border_pixels}} ) {
@@ -839,6 +925,74 @@ sub svg_edge_offset {
     ];
 }
 
+sub svg_area_overlap {
+    my ( $area1, $area2 ) = @_;
+
+    foreach my $y ( 0..$#$area1 ) {
+        my $row = $area1->[$y];
+        foreach my $x ( 0..$#$row ) {
+            next unless $row->[$x];
+            return 1 if $y && $area2->[$y-1][$x  ];
+            return 1 if       $area2->[$y+1][$x  ];
+            return 1 if $x && $area2->[$y  ][$x-1];
+            return 1 if $x && $area2->[$y  ][$x+1];
+        }
+    }
+
+    return 0;
+}
+
+sub svg_add_area {
+    my ( $command ) = @_;
+
+    # Grid of pixels within the current area:
+    my @area;
+    $area[$_->[1]][$_->[0]] = 1 foreach @{$command->{pixels}};
+    $command->{area} = \@area;
+
+    if ( $command->{border}
+         || !@svg_current_areas
+         ||  $svg_current_areas[0]->{pattern} != $command->{pattern} ) {
+        svg_finalise_areas();
+    }
+
+    push( @svg_current_areas, $command );
+}
+
+sub svg_finalise_areas {
+    # Whereas The Illustrator forces paths to be drawn in order,
+    # an image might fill nooks and crannies first, then join them up later.
+    # Therefore, we delay detecting filled areas as long as possible
+
+    while ( my $command = shift @svg_current_areas ) {
+
+        my $lines_current = $command->{lines};
+
+        for ( my $n=0; $n<@svg_current_areas; ++$n ) {
+            my $other = $svg_current_areas[$n];
+            next unless svg_area_overlap($command->{area},$other->{area});
+            splice( @svg_current_areas, $n, 1 );
+            $command->{area}->[$_->[1]][$_->[0]] = 1 foreach @{$other->{pixels}};
+            foreach my $element ( qw/ stroke_pixels pixels / ) {
+                push( @{$command->{$element}}, @{$other->{$element}} );
+            }
+            my $lines_new = $other->{lines};
+            foreach my $y ( 0..$#$lines_new ) {
+                my $row = $lines_new->[$y];
+                foreach my $x ( 0..$#$row ) {
+                    $lines_current->[$y][$x] //= $row->[$x];
+                }
+            }
+
+            $n = -1; # start over again, because we have enlarged the overlap area
+        }
+
+        svg_finalise_area($command);
+
+    }
+
+}
+
 # the "fill" and "shade" commands fill in an area defined by:
 # 1. the edges of the screen
 # 2. lines that have already been drawn
@@ -847,12 +1001,13 @@ sub svg_edge_offset {
 #
 # this calculates the area touched by "fill" and "shade" commands,
 # based on the list of pixels filled in by the algorithm.
-sub svg_add_area {
+sub svg_finalise_area {
     my ( $command ) = @_;
+
     my $local_debug = $command->{id} == 'NaN'; # change this to a number during debugging
     warn "debugging enabled for command $command->{id} in room $room" if $local_debug;
 
-    my @pixels = @{$command->{pixels}};
+    my $area = $command->{area};
 
     #
     # PART ONE: Calculate required information
@@ -903,10 +1058,6 @@ sub svg_add_area {
         $edges[$n]->[0]->{prev} = $edges[$n-1]->[0];
     }
 
-    # Grid of pixels within the current area:
-    my @area;
-    $area[$_->[1]][$_->[0]] = 1 foreach @pixels;
-
     # build a list of pixels that touch the border of the area:
     my @border_pixels;
     foreach my $pixel ( @{$command->{pixels}} ) {
@@ -914,28 +1065,27 @@ sub svg_add_area {
         # check the left edge:
         if ( $x == 0 ) {
             push( @border_pixels, { coords => [$x-1,$y], commands => $left_edge } );
-        } elsif ( !$area[$y][$x-1] ) {
+        } elsif ( !$area->[$y][$x-1] ) {
             push( @border_pixels, { coords => [$x-1,$y] } )
         }
         if ( $x == $viewbox_width-1 ) {
             push( @border_pixels, { coords => [$x+1,$y], commands => $right_edge } );
-        } elsif ( !$area[$y][$x+1] ) {
+        } elsif ( !$area->[$y][$x+1] ) {
             push( @border_pixels, { coords => [$x+1,$y] } )
         }
         if ( $y == $bottom_row ) {
             push( @border_pixels, { coords => [$x,$y-1], commands => $bottom_edge } );
-        } elsif ( !$area[$y-1][$x] ) {
+        } elsif ( !$area->[$y-1][$x] ) {
             push( @border_pixels, { coords => [$x,$y-1] } )
         }
         if ( $y == $screen_height-1 ) {
             push( @border_pixels, { coords => [$x,$y+1], commands => $top_edge } );
-        } elsif ( !$area[$y+1][$x] ) {
+        } elsif ( !$area->[$y+1][$x] ) {
             push( @border_pixels, { coords => [$x,$y+1] } )
         }
     }
 
     # debugging use only:
-    $command->{area} = \@area;
     $command->{border_pixels} = \@border_pixels;
 
     # add commands for border pixels not at the edges of the viewbox:
@@ -1240,19 +1390,19 @@ sub svg_add_area {
             my ( $from, $to ) = @{$segment_endpoints[$n]};
             my @others = ($n+1)..$#line_segments;
             my $other;
-            if      ( ( $other ) = grep( { $segment_endpoints[$_][1][0] == $from->[0] } @others ) ) {
+            if      ( ( $other ) = vertical_matches( \@segment_endpoints, $from, 1, @others ) ) {
                 # other's "to" -> our "from"
                 svg_segment_attach( $line_segments[$other], $segment );
-            } elsif ( ( $other ) = grep( { $segment_endpoints[$_][0][0] ==   $to->[0] } @others ) ) {
+            } elsif ( ( $other ) = vertical_matches( \@segment_endpoints, $to  , 0, @others ) ) {
                 # other's "from" -> our "to"
                 svg_segment_attach( $segment, $line_segments[$other] );
-            } elsif ( ( $other ) = grep( { $segment_endpoints[$_][0][0] == $from->[0] } @others ) ) {
+            } elsif ( ( $other ) = vertical_matches( \@segment_endpoints, $from, 0, @others ) ) {
                 # other's "from" -> our "from"
                 svg_segment_attach(
                     svg_segment_reverse(\@line_segments,$line_segments[$other]),
                     $segment,
                 );
-            } elsif ( ( $other ) = grep( { $segment_endpoints[$_][1][0] ==   $to->[0] } @others ) ) {
+            } elsif ( ( $other ) = vertical_matches( \@segment_endpoints, $to  , 1, @others ) ) {
                 # other's "to" -> our "to"
                 svg_segment_attach(
                     $line_segments[$other],
@@ -1265,44 +1415,46 @@ sub svg_add_area {
         }
     }
 
-    # occasionally, the end of one path will connect to a point in the middle of another path:
+    #
+    # Heuristics below here are designed to catch rare edge cases.
+    # We start closing lines here, so they don't break lines that are already done.
+    #
     if ( $#line_segments ) {
-      LINE_SEGMENT:
+        foreach my $segment ( @line_segments ) {
+            $segment->{closed} |= adjacent( $segment->{from}, $segment->{last}->{to} );
+        }
+    }
+
+    # very occasionally, a line will be briefly interrupted by another line.
+    # Imagine a a situation like this:
+    #
+    # ####
+    # #/\#
+    # #\/#
+    # ----
+    #
+    # The "#" area is filled, but the base of the diamond shape interrupts the other line.
+    # In principle, this interruption can be arbitrarily long.
+    # In practice, it rarely happens at all, and there could be other special cases for
+    # interruptions of more than 2 pixels.
+    if ( $#line_segments ) {
+        foreach my $segment ( @line_segments ) {
+            $segment->{closed} |= $segment->{command} == $segment->{last}->{command} && $segment != $segment->{last};
+        }
+    }
+
+    # occasionally, the end of one path will be adjacent to a point in the middle of another path
+    if ( $#line_segments ) {
         foreach my $n ( 0..$#line_segments ) {
-            my $segment = $line_segments[$n];
-            next unless $segment->{root};
-            my ( $from, $to ) = @{svg_segment_endpoints($segment)};
-            foreach my $other ( @line_segments[($n+1)..$#line_segments] ) {
-                my $count = -1;
-                for ( my $s=$other; $s; $s=$s->{next} ) { ++$count; }
+            svg_segment_attach_middle( \@line_segments, $n, \&adjacent );
+        }
+        @line_segments = grep( { $_->{root} } @line_segments );
+    }
 
-                my $pos = 0;
-                for ( my $s=$other; $s; $s=$s->{next} ) {
-                    if      ( adjacent(   $to, $s->{  to} ) ) {
-                        # $other is [ $a .. $match .. $z ]
-                        if ( $pos < $count/2 ) {
-                            # create [ $segment .. $match..$a .. $a..$z ]:
-                            svg_segment_attach( $segment, svg_segment_reverse( [], svg_segment_clone( $other    , $pos+1 ) ), $other );
-                        } else {
-                            # create [ $segment .. $match..$z .. $z..$a ]:
-                            svg_segment_attach( $segment,                          svg_segment_clone( $s->{next}, 'Inf'  )  , svg_segment_reverse( \@line_segments, $other ) );
-                        }
-                        next LINE_SEGMENT;
-                    } elsif ( adjacent( $from, $s->{  to} ) ) {
-                        # other is [ $a .. $match .. $z ]
-                        if ( $pos < $count / 2 ) {
-                           # create [ $z..$a .. $a..$match .. $segment ]:
-                           svg_segment_attach( svg_segment_reverse( \@line_segments, $other ), svg_segment_clone( $other, $pos+1 ), $segment );
-                        } else {
-                           # create [ $a..$z .. $z..$match .. $segment ]
-                           svg_segment_attach( $other, svg_segment_reverse( [], svg_segment_clone( $s->{next}, 'Inf' ) ), $segment );
-                        }
-                    }
-                    next LINE_SEGMENT;
-                    ++$pos;
-                }
-
-            }
+    # very occasionally, the end of one path will be separated by a vertical line from a point in the middle of another path
+    if ( $#line_segments ) {
+        foreach my $n ( 0..$#line_segments ) {
+            svg_segment_attach_middle( \@line_segments, $n, \&equal_horizontal );
         }
         @line_segments = grep( { $_->{root} } @line_segments );
     }
@@ -1314,7 +1466,7 @@ sub svg_add_area {
             my $first_non_adjacent=0;
             my $s = $segment;
             $s = $s->{next} while $s && adjacent( $from, $s->{from} ) && adjacent( $from, $s->{to} );
-            $segment->{closed} = $s && adjacent( $from, $segment->{last}->{to} );
+            $segment->{closed} |= $s && adjacent( $from, $segment->{last}->{to} );
 
             # Occasionally (e.g. in room 20 of the Very Big Cave Adventure),
             # a line will be spuriously cut into two segments:
@@ -1423,7 +1575,7 @@ sub svg_add_area {
                fill_pixels => $command->{pixels},
              stroke_pixels => $command->{stroke_pixels},
              fill => $command->{pattern},
-             stroke => $command->{stroke_pixels} ? 'paper' : 'none',
+             stroke => (@{$command->{stroke_pixels}}) ? 'paper' : 'none',
              d => join( "\n", @d ),
         }
     );
@@ -1442,6 +1594,8 @@ sub svg_add_area {
 sub plot {
     my ( $colour, $dx, $dy ) = @_;
     # draw a line at the specified point
+
+    svg_finalise_areas;
 
     my $line = {
         type   => 'plot',
@@ -1465,6 +1619,8 @@ sub plot {
 
 sub line {
     my ( $colour, $unscaled_x, $unscaled_y ) = @_;
+
+    svg_finalise_areas;
 
     my ( $x, $y ) = ( scale($unscaled_x), scale($unscaled_y) );
 
@@ -1536,6 +1692,9 @@ sub line {
 sub rectangle {
     my ( $x, $y, $w, $h ) = @_;
 
+    svg_finalise_path;
+    svg_finalise_areas;
+
     my $colour = current_colour;
 
     $x = round($x/8);
@@ -1548,14 +1707,12 @@ sub rectangle {
         }
     }
 
-    svg_finalise_path;
-
     return;
 }
 
 # fill a single pixel
 #
-# To simplify svg_add_area(), we treat each pixel like a separate "plot" command.
+# To simplify svg_finalise_area(), we treat each pixel like a separate "plot" command.
 sub fill_pixel {
     my ( $command, $colour, $x, $y ) = @_;
     draw_point( x => $x, y => $y, colour => $colour, command => {
@@ -1629,11 +1786,13 @@ sub fill {
     return if $screen[$y][$x];
 
     my $fill = {
-        type    => 'fill',
-        id      => $command_id++,
-        pattern => 255,
-        pixels  => [],
-        lines   => [], # not used by fill (only by shade)
+        type          => 'fill',
+        id            => $command_id++,
+        pattern       => 255,
+        border        => 0,
+        pixels        => [],
+        lines         => [], # not used by fill (only by shade)
+        stroke_pixels => [],
     };
 
     fill_row( $fill, $colour, $x, $y, 'down-then-up' );
@@ -1658,7 +1817,7 @@ sub shade_column {
     die if $screen[$y][$x];
 
     my $bottom = $y;
-    while ( $bottom && !$screen[$bottom-1][$x] ) {
+    while ( $bottom > $bottom_row && !$screen[$bottom-1][$x] ) {
         --$bottom;
     }
 
@@ -1680,7 +1839,7 @@ sub shade_column {
     set_colour( round($x/8), round((   $top+1)/8), $colour ) if $top < $screen_height-1;
 
     if ( $border ) {
-        if ( $bottom > 0 && !shade_pixel_at( $pattern, $x, $bottom-1 ) ) {
+        if ( $bottom > $bottom_row && !shade_pixel_at( $pattern, $x, $bottom-1 ) ) {
             push( @{$shade->{stroke_pixels}}, [$x,$y] );
             clear_point( x => $x, y => $bottom-1, command => $shade, colour => $colour );
         }
@@ -1819,7 +1978,7 @@ sub shade {
         border  => $border,
         lines   => [],
         pixels  => [],
-        ( $border ? ( stroke_pixels => [] ) : () )
+        stroke_pixels => [],
     };
 
     shade_column( $shade, $colour, $x, $y, $pattern, $border, 'right-then-left', [] );
@@ -1838,6 +1997,7 @@ sub compute_sub {
 
 sub noop {
     svg_finalise_path;
+    svg_finalise_areas;
 }
 
 #
@@ -1936,7 +2096,7 @@ sub noop {
         # do a shaded flood fill in a texture given by "f".
         # Note: the man page likens this to MOVE, but $basecursor_x and $basecursor_y aren't updated
         my ($x, $y, $f) = @_;
-        shade($x, $y, $f);
+        shade($x, $y, $f, 0);
     },
 
     'BSHADE' => sub {
