@@ -57,6 +57,7 @@ Here is a rough overview of the way Illustrator images are parsed:
 use warnings;
 use strict;
 use List::Util qw/ min max /;
+use POSIX qw/ floor /;
 
 no warnings 'recursion'; # fill and shade are deeply recursive
 
@@ -357,22 +358,42 @@ sub equal_horizontal {
     return $p1->[0] == $p2->[0];
 }
 
-sub svg_path_line {
-    my ( $length ) = @_;
-    my ( $x, $y ) = ( svg_scale($length->[0]), svg_scale($length->[1]) );
-    if ( $x == 0 ) {
-        if ( $y == 0 ) {
-            return "l 0,0"; # otherwise, SVG won't render single-pixel paths
+sub svg_path_lines {
+    # convert a set of points to a line,
+    # with lengths rounded to the nearest half-pixel
+    my ( $raw_x, $raw_y, @lengths ) = @_;
+    my $out_x = floor( $raw_x * 2 ) / 2;
+    my $out_y = floor( $raw_y * 2 ) / 2;
+    my @ret = (
+        'M ' . svg_scale($out_x) . ',' . svg_scale($out_y)
+    );
+    foreach my $length ( @lengths ) {
+        my $rounded_x = floor( ( $raw_x + $length->[0] ) * 2 ) / 2;
+        my $rounded_y = floor( ( $raw_y + $length->[1] ) * 2 ) / 2;
+
+        my $scaled_x = svg_scale( $rounded_x - $out_x );
+        my $scaled_y = svg_scale( $rounded_y - $out_y );
+
+        if ( $scaled_x == 0 ) {
+            if ( $scaled_y == 0 ) {
+                # otherwise, SVG will only render paths with at least one line:
+                push( @ret, "l 0,0" ) unless $#lengths;
+            } else {
+                push( @ret, "v $scaled_y" );
+            }
         } else {
-            return "v $y";
+            if ( $scaled_y == 0 ) {
+                push( @ret, "h $scaled_x" );
+            } else {
+                push( @ret, "l $scaled_x,$scaled_y" );
+            }
         }
-    } else {
-        if ( $y == 0 ) {
-            return "h $x";
-        } else {
-            return "l $x,$y";
-        }
+
+        $raw_x += $length->[0];
+        $raw_y += $length->[1];
+        ( $out_x, $out_y ) = ( $rounded_x, $rounded_y );
     }
+    return @ret;
 }
 
 #
@@ -442,11 +463,7 @@ sub svg_finalise_path {
         $y = $screen_height-$y-0.5;
         $svg_current_path->{d} = join(
             ' ',
-            'M ' . svg_scale($x) . ',' . svg_scale($y),
-            map(
-                { svg_path_line($_->{length}) }
-                @{$svg_current_path->{commands}}
-            ),
+            svg_path_lines( $x, $y, map( { $_->{length} } @{$svg_current_path->{commands}} ) ),
             $svg_current_path->{closed} ? 'Z' : ()
         );
 
@@ -1578,13 +1595,7 @@ sub svg_finalise_area {
 
             my $start = shift @segment_lines;
 
-            push( @d,
-                  join( ' ',
-                        'M ' . svg_scale($start->[0]).','.svg_scale($start->[1]),
-                        map( { svg_path_line($_) } @segment_lines ),
-                        'Z'
-                  )
-            );
+            push( @d, join( ' ', svg_path_lines(@$start,@segment_lines), 'Z' ) );
         }
 
     }
@@ -2456,7 +2467,7 @@ sub pixels_to_paths {
             });
         } else {
             # complex path
-            my @d;
+            my @connected_paths;
             while ( @$lines ) {
                 my ( $line ) = grep( { $lines->[$_]->{from}->[0] == $pos_x && $lines->[$_]->{from}->[1] == $pos_y } 0..$#$lines );
                 if ( defined($line) ) {
@@ -2465,18 +2476,18 @@ sub pixels_to_paths {
                 } else {
                     # start a new connected path
                     $line = shift @$lines;
-                    push( @d, ( @d ? "\n" : '' ) . "M " . svg_scale($line->{from}->[0]*$multiplier) . ',' . svg_scale($screen_height-($line->{from}->[1]*$multiplier)) );
+                    push( @connected_paths, [ $line->{from}->[0]*$multiplier, $screen_height-($line->{from}->[1]*$multiplier) ] );
                     ( $pos_x, $pos_y ) = @{$line->{from}};
                 }
                 my ( $new_x, $new_y ) = @{$line->{to}};
-                push( @d, ' ' . svg_path_line([ ($new_x-$pos_x)*$multiplier, ($pos_y-$new_y)*$multiplier ]) );
+                push( @{$connected_paths[-1]}, [ ($new_x-$pos_x)*$multiplier, ($pos_y-$new_y)*$multiplier ] );
                 ( $pos_x, $pos_y ) = @{$line->{to}};
             }
             push( @paths, {
                 id => $id,
                 text =>
                     "  <path id=\"$class-$path_id\" class=\"$class\" fill=\"$colour\" d=\"" .
-                    join( '', @d ) .
+                    join( "\n", map( { join( ' ', svg_path_lines(@$_) ) } @connected_paths ) ) .
                     "\" />\n"
             });
         }
