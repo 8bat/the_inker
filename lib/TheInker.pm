@@ -359,6 +359,7 @@ sub equal_horizontal {
 }
 
 sub svg_path_lines {
+
     # convert a set of points to a line,
     # with lengths rounded to the nearest half-pixel
     my ( $raw_x, $raw_y, @lengths ) = @_;
@@ -367,6 +368,41 @@ sub svg_path_lines {
     my @ret = (
         'M ' . svg_scale($out_x) . ',' . svg_scale($out_y)
     );
+
+    # Optimise common issues:
+    @lengths = grep( { $_->[0] || $_->[1] } @lengths );
+    # SVG will only render paths with at least one line:
+    return ( @ret, 'l 0,0' ) unless @lengths;
+    for ( my $n=0; $n<$#lengths; ++$n ) {
+        # convert e.g. "h 1 v1" to "l 1,1"
+        if (
+            (
+             abs($lengths[$n  ][0]) == 0 && abs($lengths[$n  ][1]) == 1 &&
+             abs($lengths[$n+1][0]) == 1 && abs($lengths[$n+1][1]) == 0
+            ) || (
+             abs($lengths[$n  ][0]) == 1 && abs($lengths[$n  ][1]) == 0 &&
+             abs($lengths[$n+1][0]) == 0 && abs($lengths[$n+1][1]) == 1
+            ) ) {
+            splice( @lengths, $n, 2, [$lengths[$n][0]+$lengths[$n+1][0],$lengths[$n][1]+$lengths[$n+1][1]] );
+        }
+    }
+    for ( my $n=0; $n<$#lengths; ++$n ) {
+        # merge lines with the same angle
+        if (
+            ($lengths[$n][0]>=0) == ($lengths[$n+1][0]>=0) &&
+            ($lengths[$n][1]>=0) == ($lengths[$n+1][1]>=0) &&
+            (
+             $lengths[$n][1]
+             ? $lengths[$n+1][1] && $lengths[$n][0] / $lengths[$n][1] == $lengths[$n+1][0] / $lengths[$n+1][1]
+             : !$lengths[$n+1][1]
+            )
+            ) {
+            splice( @lengths, $n, 2, [$lengths[$n][0]+$lengths[$n+1][0],$lengths[$n][1]+$lengths[$n+1][1]] );
+            --$n;
+        }
+    }
+
+    # generate commands:
     foreach my $length ( @lengths ) {
         my $rounded_x = floor( ( $raw_x + $length->[0] ) * 2 ) / 2;
         my $rounded_y = floor( ( $raw_y + $length->[1] ) * 2 ) / 2;
@@ -375,10 +411,7 @@ sub svg_path_lines {
         my $scaled_y = svg_scale( $rounded_y - $out_y );
 
         if ( $scaled_x == 0 ) {
-            if ( $scaled_y == 0 ) {
-                # otherwise, SVG will only render paths with at least one line:
-                push( @ret, "l 0,0" ) unless $#lengths;
-            } else {
+            if ( $scaled_y != 0 ) {
                 push( @ret, "v $scaled_y" );
             }
         } else {
@@ -393,7 +426,9 @@ sub svg_path_lines {
         $raw_y += $length->[1];
         ( $out_x, $out_y ) = ( $rounded_x, $rounded_y );
     }
+
     return @ret;
+
 }
 
 #
