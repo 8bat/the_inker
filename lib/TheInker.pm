@@ -444,6 +444,8 @@ sub svg_add_line {
         $command->{prev} = $prev;
         $prev->{next}->{prev} = $command;
         $prev->{next} = $command;
+        $command->{length}->[0] *=  $scale;
+        $command->{length}->[1] *= -$scale;
     } else {
         push( @svg_paths, $svg_current_path = {
             class    => 'line',
@@ -459,13 +461,13 @@ sub svg_add_line {
         });
         $command->{from}->[0] += $offset->[0];
         $command->{from}->[1] += $offset->[1];
+        $command->{length}->[0] *=  $scale;
+        $command->{length}->[1] *= -$scale;
         $command->{length}->[0] -= $offset->[0];
-        $command->{length}->[1] -= $offset->[1];
+        $command->{length}->[1] += $offset->[1];
         $command->{next} = $command->{prev} = $command;
     }
     $command->{distance_to_anchor} = @{$svg_current_path->{commands}};
-    $command->{length}->[0] *=  $scale;
-    $command->{length}->[1] *= -$scale;
     $command->{path} = $svg_current_path;
 
     # start/end point represent the edges of the SVG line, whereas from/to represent the bitmap edges:
@@ -1671,7 +1673,7 @@ sub plot {
         id     => $command_id++,
         from   => [$basecursor_x-($dx//0),$basecursor_y-($dy//0)],
         to     => [$basecursor_x         ,$basecursor_y         ],
-        length => ( defined($dx) ? [$dx,$dy] : undef ),
+        length => ( defined($dx) ? [$dx,$dy] : [0,0] ),
         pixels => [[$basecursor_x,$basecursor_y]],
     };
 
