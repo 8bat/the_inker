@@ -647,10 +647,8 @@ sub svg_segment_intersections_inner {
     # (see https://en.wikipedia.org/wiki/Line%E2%80%93line_intersection)
     # There are several edge cases too
     my ( $s1, $s2, $command ) = @_;
-    my ( $x1, $y1 ) = @{$s1->{command}->{start_point}};
-    my ( $x2, $y2 ) = @{$s1->{command}->{  end_point}};
-    my ( $x3, $y3 ) = @{$s2->{command}->{start_point}};
-    my ( $x4, $y4 ) = @{$s2->{command}->{  end_point}};
+    my ( $x1, $y1, $x2, $y2, $s1_command, $s1_reversed ) = @$s1;
+    my ( $x3, $y3, $x4, $y4, $s2_command, $s2_reversed ) = @$s2;
 
     # Special cases for points:
     if ( $x1 == $x2 && $y1 == $y2 ) {
@@ -722,8 +720,8 @@ sub svg_segment_intersections_inner {
         "Line 1: %3.1f,%3.1f -> %3.1f,%3.1f (type: %s)\n" .
         "Line 2: %3.1f,%3.1f -> %3.1f,%3.1f (type: %s)\n" .
         "(0,0 is the top-left pixel)",
-        $x1, $y1, $x2, $y2, $s1->{command}->{type},
-        $x3, $y3, $x4, $y4, $s2->{command}->{type}
+        $x1, $y1, $x2, $y2, $s1_command->{type},
+        $x3, $y3, $x4, $y4, $s2_command->{type}
     );
 
     return undef;
@@ -737,10 +735,8 @@ sub svg_segment_intersections {
     my ( $s1, $s2, $command ) = @_;
     my @points = svg_segment_intersections_inner($s1,$s2,$command);
     unless ( $#points ) {
-        my ( $x1, $y1 ) = @{$s1->{command}->{start_point}};
-        my ( $x2, $y2 ) = @{$s1->{command}->{  end_point}};
-        my ( $x3, $y3 ) = @{$s2->{command}->{start_point}};
-        my ( $x4, $y4 ) = @{$s2->{command}->{  end_point}};
+        my ( $x1, $y1, $x2, $y2, $s1_command, $s1_reversed ) = @$s1;
+        my ( $x3, $y3, $x4, $y4, $s2_command, $s2_reversed ) = @$s2;
         my $left   = min( $x1, $x2, $x3, $x4 );
         my $right  = max( $x1, $x2, $x3, $x4 );
         my $top    = min( $y1, $y2, $y3, $y4 );
@@ -753,12 +749,12 @@ sub svg_segment_intersections {
             my ( $x, $y ) = @{$points[0]};
             return (
                 (
-                 $s1->{reversed}
+                 $s1_reversed
                  ? [$x1,$y1]
                  : [$x2,$y2]
                 ),
                 (
-                 $s2->{reversed}
+                 $s2_reversed
                  ? [$x4,$y4]
                  : [$x3,$y3]
                 )
@@ -824,6 +820,7 @@ sub svg_segments_stringify {
 
 sub svg_segment_reduce {
     my ( $segment ) = @_;
+    # remove single-point segments at the start:
     while (
         $segment &&
         $segment->{next} &&
@@ -833,6 +830,7 @@ sub svg_segment_reduce {
         $segment = $segment->{next};
     }
     $segment->{prev} = undef;
+    # remove single-point segments in the middle:
     for ( my $s = $segment->{next}; $s; $s = $s->{next} ) {
         if (
             $s->{from_pos} == $s->{to_pos} &&
@@ -1593,10 +1591,43 @@ sub svg_finalise_area {
         # very rarely, points can be removed from a line:
         $segment = svg_segment_reduce( $segment );
 
+        # convert segments to a list of points:
+        my @segment_points;
+        for ( my $s=$segment; $s; $s = $s->{next} ) {
+            my $command = $s->{command};
+            push( @segment_points, [
+                      @{$command->{start_point}},
+                      @{$command->{  end_point}},
+                      $s->{command },
+                      $s->{reversed},
+                  ]);
+        }
+
+        # convert some points to lines (full merge is done later)
+        # svg_segment_intersections() treats points and lines differently,
+        # we need to merge pairs of points so it has an angle to work with
+        for ( my $n = 0; $n<$#segment_points; ++$n ) {
+            my ( $first, $last ) = @segment_points[$n,$n+1];
+            if (
+                $first->[0] == $first->[2] && $first->[1] == $first->[3] &&
+                $last->[0] == $last->[2] && $last->[1] == $last->[3]
+                ) {
+                my @line = ( @{$first}[0,1], @{$last}[2,3] );
+                my $m = $n+1;
+                while ( ++$m != @segment_points ) {
+                    my $s = $segment_points[$m];
+                    last if $s->[0] != $s->[2] || $s->[1] != $s->[3];
+                    last if point_line_distance( @{$s}[0,1], @line );
+                    $last = $s;
+                }
+                splice( @segment_points, $n, $m-$n, [ @{$first}[0,1], @{$last}[2,3], $first->[4], 0 ] );
+            }
+        }
+
         # Build the line description:
-        my @segment_lines = svg_segment_intersections( $segment->{last}, $segment, $command );
-        for ( my $s=$segment; $s != $segment->{last}; $s = $s->{next} ) {
-            push( @segment_lines, svg_segment_intersections( $s, $s->{next}, $command ) );
+        my @segment_lines = svg_segment_intersections( @segment_points[-1,0], $command );
+        for ( my $n = 0; $n!=$#segment_points; ++$n ) {
+            push( @segment_lines, svg_segment_intersections( @segment_points[$n,$n+1], $command ) );
         }
         if ( grep( { !defined($_) } @segment_lines ) ) {
 
