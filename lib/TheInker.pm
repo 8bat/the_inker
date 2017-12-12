@@ -964,7 +964,6 @@ sub svg_area_dump {
     print(
         $vectors_fh
         q{<?xml version="1.0" encoding="UTF-8" standalone="no"?>} . "\n" .
-        q{<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 20010904//EN" "http://www.w3.org/TR/2001/REC-SVG-20010904/DTD/svg10.dtd">} . "\n" .
         q{<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 96">} . "\n"
     );
     foreach my $n ( 0..$#line_segments ) {
@@ -2702,7 +2701,6 @@ sub render_svg {
     my $stroke_width = svg_scale(1);
     return <<END
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.0//EN" "http://www.w3.org/TR/2001/REC-SVG-20010904/DTD/svg10.dtd">
 <svg viewBox="0 0 $svg_width $svg_height" style="fill-rule:evenodd;stroke-linecap:square;stroke-linejoin:round;stroke-width:$stroke_width" height="100%" width="100%" xmlns="http://www.w3.org/2000/svg">
 $defs$paths</svg>
 END
