@@ -604,7 +604,7 @@ sub load {
             if ( /^#define (\w+) (\d+)$/ ) {
                 die $1 if exists($data{fonts}{$1});
                 $data{fonts}{$1} = $2;
-            } elsif ( /^static char font(\d+)_bits\[\] = \{$/ ) {
+            } elsif ( /^static char font(\d*)_bits\[\] = \{$/ ) {
                 die $1 if exists($data{fonts}{"font-$1"});
                 my $bits = $data{fonts}{"font-$1"} = [];
                 do {
