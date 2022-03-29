@@ -589,7 +589,7 @@ sub load {
             if ( /^#define (\w+) (\d+)$/ ) {
                 die $1 if exists($data{udgs}{$1});
                 $data{udgs}{$1} = $2;
-            } elsif ( /^static char udg_bits\[\] = {$/ ) {
+            } elsif ( /^static char udg_bits\[\] = \{$/ ) {
                 die 'bits' if exists($data{udgs}{bits});
                 my $bits = $data{udgs}{bits} = [];
                 do {
@@ -604,7 +604,7 @@ sub load {
             if ( /^#define (\w+) (\d+)$/ ) {
                 die $1 if exists($data{fonts}{$1});
                 $data{fonts}{$1} = $2;
-            } elsif ( /^static char font(\d+)_bits\[\] = {$/ ) {
+            } elsif ( /^static char font(\d+)_bits\[\] = \{$/ ) {
                 die $1 if exists($data{fonts}{"font-$1"});
                 my $bits = $data{fonts}{"font-$1"} = [];
                 do {
